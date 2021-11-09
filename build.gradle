@@ -1,0 +1,12 @@
+plugins {
+    id 'application'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation "org.ow2.asm:asm:$asmVersion"
+    implementation "org.ow2.asm:asm-util:$asmVersion"
+}
