@@ -9,29 +9,32 @@ public class Util {
         List<String> params = new ArrayList<>();
 
         for (int i = 0; i < desc.length(); i++) {
-            char c = desc.charAt(i);
-            StringBuilder param = new StringBuilder(String.valueOf(c));
-            if (c == 'L') {
-                for (; i < desc.length(); i++) {
-                    char c2 = desc.charAt(i);
-                    param.append(c2);
-                    if (c2 == ';') {
-                        break;
-                    }
-                }
-            } else if (c == '[') {
-                for (; i < desc.length(); i++) {
-                    char c2 = desc.charAt(i);
-                    param.append(c2);
-                    if (c2 != '[') {
-                        break;
-                    }
-                }
-            }
-
-             params.add(param.toString());
+            String param = getFirstDescriptor(desc.substring(i));
+            params.add(param);
+            i += param.length() - 1;
         }
 
         return params;
+    }
+
+    private static String getFirstDescriptor(String descriptor) {
+        char c = descriptor.charAt(0);
+        String d = switch (c) {
+            case 'B', 'C', 'D', 'F', 'I', 'J', 'S', 'Z' -> String.valueOf(c);
+            default -> null;
+        };
+        if (d != null) {
+            return d;
+        }
+
+        if (c == 'L') {
+            return descriptor.substring(0, descriptor.indexOf(";") + 1);
+        }
+
+        if (c == '[') {
+            return c + getFirstDescriptor(descriptor.substring(1));
+        }
+
+        return null;
     }
 }
