@@ -6,15 +6,20 @@ import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.quiltmc.draftsman.Draftsman;
 import org.quiltmc.draftsman.Util;
+import org.quiltmc.draftsman.asm.Insn;
+import org.quiltmc.draftsman.asm.visitor.InsnCollectorMethodVisitor;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
     private final List<FieldData> noValueStaticFields = new ArrayList<>();
     private final List<FieldData> enumFields = new ArrayList<>();
     private final List<FieldData> instanceFields = new ArrayList<>();
     private final List<MethodData> instanceInitializers = new ArrayList<>();
+    private final Map<MethodData, List<Insn>> instanceInitializerInvokeSpecials = new HashMap<>();
     private String className;
 
     public FieldValueEraserAdapter(ClassVisitor classVisitor) {
@@ -52,8 +57,14 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
         if (name.equals("<clinit>")) {
             return null; // Remove clinit
         } else if (name.equals("<init>")) {
-            instanceInitializers.add(new MethodData(access, name, descriptor, signature, exceptions));
-            return null; // Remove init
+            MethodData init = new MethodData(access, name, descriptor, signature, exceptions);
+            instanceInitializers.add(init);
+
+            // Save invokespecial instructions for later (we need the super/this constructor)
+            InsnCollectorMethodVisitor visitor = new InsnCollectorMethodVisitor(null, INVOKESPECIAL);
+            instanceInitializerInvokeSpecials.put(init, visitor.getInsns());
+
+            return visitor;
         }
 
         return super.visitMethod(access, name, descriptor, signature, exceptions);
@@ -105,7 +116,17 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
             MethodVisitor visitor = super.visitMethod(init.access, init.name, init.descriptor, init.signature, init.exceptions);
             visitor.visitCode();
             visitor.visitVarInsn(ALOAD, 0);
-            visitor.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+
+            // Handle super/this constructor call
+            Insn superInvokeSpecial = instanceInitializerInvokeSpecials.get(init).get(0); // Always the first one
+            List<Object> args = superInvokeSpecial.args();
+            String descriptor = (String) args.get(2);
+            List<String> params = Util.splitDescriptorParameters(descriptor);
+            for (String param : params) {
+                addTypeDefaultToStack(param, visitor);
+            }
+
+            visitor.visitMethodInsn(INVOKESPECIAL, (String) args.get(0), (String) args.get(1), (String) args.get(2), (Boolean) args.get(3));
 
             // Add field initializations
             for (FieldData field : instanceFields) {

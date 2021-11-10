@@ -9,4 +9,8 @@ public class TestExtending extends TestClass {
         this.fieldD = fieldD;
         this.fieldE = fieldE;
     }
+
+    public TestExtending(String fieldC, String fieldD) {
+        this(fieldC, fieldD, 0);
+    }
 }
