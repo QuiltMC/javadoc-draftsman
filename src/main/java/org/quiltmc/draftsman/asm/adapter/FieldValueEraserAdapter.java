@@ -82,7 +82,7 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
             List<String> initializerParams = Util.splitDescriptorParameters(initializer.descriptor);
 
             for (int i = 2; i < initializerParams.size(); i++) {
-                addTypeDefaultToStack(initializerParams.get(i).replace("[", ""), visitor);
+                addTypeDefaultToStack(initializerParams.get(i), visitor);
             }
 
             visitor.visitMethodInsn(INVOKESPECIAL, className, "<init>", initializer.descriptor, false);
