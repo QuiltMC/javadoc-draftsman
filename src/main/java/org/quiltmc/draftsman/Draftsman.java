@@ -9,11 +9,12 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 public class Draftsman {
     public static final int ASM_VERSION = Opcodes.ASM9;
 
-    public static Map<Path, byte[]> transformClasses(List<Path> paths, boolean trace) {
+    public static Map<Path, byte[]> transformClasses(List<Path> paths, boolean trace, Function<Path, Path> pathProcessor) {
         Map<Path, byte[]> classFiles = new HashMap<>();
 
         for (Path path : paths) {
@@ -21,7 +22,7 @@ public class Draftsman {
                 byte[] classFile = Files.readAllBytes(path);
                 DraftsmanClassTransformer transformer = new DraftsmanClassTransformer(classFile, trace);
                 byte[] transformed = transformer.transform();
-                classFiles.put(path, transformed);
+                classFiles.put(pathProcessor.apply(path), transformed);
             } catch (IOException e) {
                 System.err.println("Failed to transform class file " + path);
                 e.printStackTrace();
@@ -29,6 +30,10 @@ public class Draftsman {
         }
 
         return classFiles;
+    }
+
+    public static Map<Path, byte[]> transformClasses(List<Path> paths, boolean trace) {
+        return transformClasses(paths, trace, Function.identity());
     }
 
     public static Map<Path, byte[]> transformClasses(List<Path> inputFiles) {

@@ -19,7 +19,7 @@ public class DraftsmanJarTest {
     public static void main(String[] args) throws IOException {
         Path jar = Path.of(args[0]);
         Path outputPath = Path.of(args[1]);
-        Path tmpDir = Files.createTempDirectory("draftsman-jar-contents");
+        Path tmpDir = Files.createTempDirectory("draftsman-jar-test");
 
         long start = System.currentTimeMillis();
         List<Path> classFiles = new ArrayList<>();

@@ -16,12 +16,14 @@ public class DraftsmanTest {
         Path outputPath = Path.of(args[0]);
 
         List<Path> inputFiles = Files.walk(inputPath).filter(p -> !Files.isDirectory(p) && p.toString().endsWith(".class")).collect(java.util.stream.Collectors.toList());
-        System.out.println(inputFiles);
-        Map<Path, byte[]> transformedClasses = Draftsman.transformClasses(inputFiles, true);
+        Map<Path, byte[]> transformedClasses = Draftsman.transformClasses(inputFiles, true, inputPath::relativize);
 
+        writeClasses(outputPath, transformedClasses);
+    }
+
+    protected static void writeClasses(Path outputPath, Map<Path, byte[]> transformedClasses) throws IOException {
         for (Map.Entry<Path, byte[]> entry : transformedClasses.entrySet()) {
-            Path relative = inputPath.relativize(entry.getKey());
-            Path outputFile = outputPath.resolve(relative);
+            Path outputFile = outputPath.resolve(entry.getKey());
 
             if (!Files.exists(outputFile.getParent())) {
                 Files.createDirectories(outputFile.getParent());
@@ -30,5 +32,4 @@ public class DraftsmanTest {
             Files.write(outputFile, entry.getValue());
         }
     }
-
 }
