@@ -18,11 +18,14 @@ public class DraftsmanDecompilationTest {
         Path inputPath = basePath.resolve("input");
         Path outputPath = Path.of(args[0]);
 
+        long start = System.currentTimeMillis();
         List<Path> inputFiles = Files.walk(inputPath).filter(p -> !Files.isDirectory(p) && p.toString().endsWith(".class")).collect(java.util.stream.Collectors.toList());
         Map<Path, byte[]> transformedClasses = Draftsman.transformClasses(inputFiles, false, inputPath::relativize);
 
         Path tmpDir = Files.createTempDirectory("draftsman-decompilation-test");
         DraftsmanTest.writeClasses(tmpDir, transformedClasses);
+        long transformEnd = System.currentTimeMillis();
+        System.out.println("Class transformation took " + (transformEnd - start) + "ms");
 
         List<String> fernflowerArgs = new ArrayList<>();
         for (int i = 1; i < args.length; i++) {
@@ -38,5 +41,8 @@ public class DraftsmanDecompilationTest {
         }
 
         ConsoleDecompiler.main(fernflowerArgs.toArray(new String[0]));
+        long end = System.currentTimeMillis();
+        System.out.println("Decompilation took " + (end - transformEnd) + "ms");
+        System.out.println("Test took " + (end - start) + "ms");
     }
 }

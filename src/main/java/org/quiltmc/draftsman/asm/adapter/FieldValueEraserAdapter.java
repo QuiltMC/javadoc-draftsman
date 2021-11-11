@@ -4,6 +4,7 @@ import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.RecordComponentVisitor;
 import org.quiltmc.draftsman.Draftsman;
 import org.quiltmc.draftsman.Util;
 import org.quiltmc.draftsman.asm.Insn;
@@ -20,7 +21,10 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
     private final List<FieldData> instanceFields = new ArrayList<>();
     private final List<MethodData> instanceInitializers = new ArrayList<>();
     private final Map<MethodData, List<Insn>> instanceInitializerInvokeSpecials = new HashMap<>();
+    private List<RecordComponent> recordComponents = new ArrayList<>();
     private String className;
+    private boolean isRecord;
+    private String recordCanonicalConstructorDescriptor = "";
 
     public FieldValueEraserAdapter(ClassVisitor classVisitor) {
         super(Draftsman.ASM_VERSION, classVisitor);
@@ -29,6 +33,10 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
     @Override
     public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
         className = name;
+        if ((access & ACC_RECORD) != 0) {
+            isRecord = true;
+        }
+
         super.visit(version, access, name, signature, superName, interfaces);
     }
 
@@ -50,6 +58,14 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
         }
 
         return super.visitField(access, name, descriptor, signature, value);
+    }
+
+    @Override
+    public RecordComponentVisitor visitRecordComponent(String name, String descriptor, String signature) {
+        this.recordComponents.add(new RecordComponent(name, descriptor, signature));
+        recordCanonicalConstructorDescriptor += descriptor;
+
+        return super.visitRecordComponent(name, descriptor, signature);
     }
 
     @Override
@@ -88,12 +104,12 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
             visitor.visitTypeInsn(NEW, className);
             visitor.visitInsn(DUP);
             visitor.visitLdcInsn(field.name);
-            makeSimplestIPush(enumIndex++, visitor);
+            Util.makeSimplestIPush(enumIndex++, visitor);
             MethodData initializer = instanceInitializers.get(0);
             List<String> initializerParams = Util.splitDescriptorParameters(initializer.descriptor);
 
             for (int i = 2; i < initializerParams.size(); i++) {
-                addTypeDefaultToStack(initializerParams.get(i), visitor);
+                Util.addTypeDefaultToStack(initializerParams.get(i), visitor);
             }
 
             visitor.visitMethodInsn(INVOKESPECIAL, className, "<init>", initializer.descriptor, false);
@@ -123,18 +139,39 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
             String descriptor = (String) args.get(2);
             List<String> params = Util.splitDescriptorParameters(descriptor);
             for (String param : params) {
-                addTypeDefaultToStack(param, visitor);
+                Util.addTypeDefaultToStack(param, visitor);
             }
 
             visitor.visitMethodInsn(INVOKESPECIAL, (String) args.get(0), (String) args.get(1), (String) args.get(2), (Boolean) args.get(3));
 
-            // Add field initializations
-            for (FieldData field : instanceFields) {
-                visitor.visitVarInsn(ALOAD, 0);
+            if (isRecord
+                    // && isCanonicalConstructor
+                    && init.descriptor.substring(1, init.descriptor.indexOf(')')).equals(recordCanonicalConstructorDescriptor)) {
+                // Add default record component initializations
+                int i = 1;
+                for (RecordComponent component : recordComponents) {
+                    visitor.visitVarInsn(ALOAD, 0);
 
-                addFieldValueToStack(field, visitor);
+                    switch (component.descriptor) {
+                        case "B", "C", "I", "S", "Z" -> visitor.visitVarInsn(ILOAD, i);
+                        case "D" -> visitor.visitVarInsn(DLOAD, i++);
+                        case "F" -> visitor.visitVarInsn(FLOAD, i);
+                        case "J" -> visitor.visitVarInsn(LLOAD, i++);
+                        default -> visitor.visitVarInsn(ALOAD, i);
+                    }
+                    i++;
 
-                visitor.visitFieldInsn(PUTFIELD, className, field.name, field.descriptor);
+                    visitor.visitFieldInsn(PUTFIELD, className, component.name, component.descriptor);
+                }
+            } else {
+                // Add field initializations
+                for (FieldData field : instanceFields) {
+                    visitor.visitVarInsn(ALOAD, 0);
+
+                    addFieldValueToStack(field, visitor);
+
+                    visitor.visitFieldInsn(PUTFIELD, className, field.name, field.descriptor);
+                }
             }
 
             visitor.visitTypeInsn(NEW, "java/lang/AbstractMethodError");
@@ -149,65 +186,25 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
     private static void addFieldValueToStack(FieldData field, MethodVisitor visitor) {
         Object value = field.value;
         if (value == null) {
-            addTypeDefaultToStack(field.descriptor, visitor);
+            Util.addTypeDefaultToStack(field.descriptor, visitor);
 
             return;
         }
 
         if (value instanceof Integer val) {
-            makeSimplestIPush(val, visitor);
+            Util.makeSimplestIPush(val, visitor);
             return;
         }
 
         visitor.visitLdcInsn(value);
     }
 
-    private static void addTypeDefaultToStack(String descriptor, MethodVisitor visitor) {
-        switch (descriptor) {
-            case "B", "C", "I", "S", "Z" -> visitor.visitInsn(ICONST_0);
-            case "D" -> visitor.visitInsn(DCONST_0);
-            case "F" -> visitor.visitInsn(FCONST_0);
-            case "J" -> visitor.visitInsn(LCONST_0);
-            default -> visitor.visitInsn(ACONST_NULL);
-        }
-    }
-
-    private static void makeSimplestIPush(int val, MethodVisitor visitor) {
-        int iconst = trySimplifyToIConst(val);
-        if (iconst != -1) {
-            visitor.visitInsn(iconst);
-            return;
-        }
-
-        if (val >= Byte.MIN_VALUE && val <= Byte.MAX_VALUE) {
-            // If the value can be a byte, we can use BIPUSH
-            visitor.visitIntInsn(BIPUSH, val);
-            return;
-        } else if (val >= Short.MIN_VALUE && val <= Short.MAX_VALUE) {
-            // If the value can be a short, we can use SIPUSH
-            visitor.visitIntInsn(SIPUSH, val);
-            return;
-        }
-
-        visitor.visitLdcInsn(val);
-    }
-
-    private static int trySimplifyToIConst(int val) {
-        // Try to use any of the ICONST_* instructions
-        return switch (val) {
-            case 0 -> ICONST_0;
-            case 1 -> ICONST_1;
-            case 2 -> ICONST_2;
-            case 3 -> ICONST_3;
-            case 4 -> ICONST_4;
-            case 5 -> ICONST_5;
-            default -> -1;
-        };
-    }
-
     public record FieldData(int access, String name, String descriptor, String signature, Object value) {
     }
 
     public record MethodData(int access, String name, String descriptor, String signature, String[] exceptions) {
+    }
+
+    public record RecordComponent(String name, String descriptor, String signature) {
     }
 }

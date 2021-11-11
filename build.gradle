@@ -8,6 +8,7 @@ repositories {
         url 'https://maven.quiltmc.org/repository/release'
     }
     mavenCentral()
+    mavenLocal()
 }
 
 dependencies {

@@ -16,7 +16,7 @@ public class DraftsmanTest {
         Path outputPath = Path.of(args[0]);
 
         List<Path> inputFiles = Files.walk(inputPath).filter(p -> !Files.isDirectory(p) && p.toString().endsWith(".class")).collect(java.util.stream.Collectors.toList());
-        Map<Path, byte[]> transformedClasses = Draftsman.transformClasses(inputFiles, true, inputPath::relativize);
+        Map<Path, byte[]> transformedClasses = Draftsman.transformClasses(inputFiles, false, inputPath::relativize);
 
         writeClasses(outputPath, transformedClasses);
     }
