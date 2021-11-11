@@ -1,6 +1,14 @@
 plugins {
+    id 'java'
     id 'application'
+    id 'maven-publish'
 }
+
+group = 'org.quiltmc'
+version = '1.0.0'
+
+sourceCompatibility = JavaVersion.VERSION_16
+targetCompatibility = JavaVersion.VERSION_16
 
 repositories {
     maven {
@@ -15,4 +23,40 @@ dependencies {
     implementation "org.ow2.asm:asm:$asmVersion"
     implementation "org.ow2.asm:asm-util:$asmVersion"
     testImplementation "org.quiltmc:quiltflower:$quiltflowerVersion"
+}
+
+application {
+    mainClass = 'org.quiltmc.draftsman.Draftsman'
+}
+
+jar {
+    manifest {
+        attributes 'Main-Class': 'org.quiltmc.draftsman.Draftsman'
+    }
+}
+
+publishing {
+    def ENV = System.getenv()
+    publications {
+        maven(MavenPublication) {
+            groupId = 'org.quiltmc'
+            artifactId = 'javadoc-draftsman'
+            version = version
+            from components.java
+        }
+    }
+
+    repositories {
+        if (ENV.MAVEN_URL) {
+            maven {
+                url = ENV.MAVEN_URL
+
+                credentials {
+                    username = ENV.MAVEN_USERNAME
+                    password = ENV.MAVEN_PASSWORD
+                }
+            }
+        }
+        mavenLocal()
+    }
 }
