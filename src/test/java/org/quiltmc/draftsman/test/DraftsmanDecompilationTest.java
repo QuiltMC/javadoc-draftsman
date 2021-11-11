@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class DraftsmanDecompilationTest {
     public static void main(String[] args) throws URISyntaxException, IOException {
@@ -34,11 +35,11 @@ public class DraftsmanDecompilationTest {
         }
 
         long start = System.currentTimeMillis();
-        List<Path> inputFiles = Files.walk(inputPath).filter(p -> !Files.isDirectory(p) && p.toString().endsWith(".class")).collect(java.util.stream.Collectors.toList());
+        List<Path> inputFiles = Files.walk(inputPath).filter(p -> !Files.isDirectory(p) && p.toString().endsWith(".class")).collect(Collectors.toList());
         Map<Path, byte[]> transformedClasses = Draftsman.transformClasses(inputFiles, false, inputPath::relativize);
 
         Path tmpDir = Files.createTempDirectory("draftsman-decompilation-test");
-        DraftsmanTest.writeClasses(tmpDir, transformedClasses);
+        Draftsman.writeClasses(tmpDir, transformedClasses);
         long transformEnd = System.currentTimeMillis();
         System.out.println("Class transformation took " + (transformEnd - start) + "ms");
 
