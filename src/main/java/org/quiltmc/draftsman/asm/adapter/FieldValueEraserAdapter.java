@@ -56,7 +56,7 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
             // All instance fields need to be initialized in <init>
             instanceFields.add(fieldData);
 
-            // Fix record component access flags
+            // Fix record component access flags (for a proper decompilation)
             if (isRecord && (access & ACC_PRIVATE) == 0) {
                 access |= ACC_PRIVATE;
             }

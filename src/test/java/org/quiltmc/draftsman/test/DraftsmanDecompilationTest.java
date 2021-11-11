@@ -15,8 +15,23 @@ import java.util.Map;
 public class DraftsmanDecompilationTest {
     public static void main(String[] args) throws URISyntaxException, IOException {
         Path basePath = Path.of(DraftsmanTest.class.getResource("DraftsmanTest.class").toURI()).getParent();
-        Path inputPath = basePath.resolve("input");
         Path outputPath = Path.of(args[0]);
+
+        int fernflowerArgsStart = -1;
+        for (int i = 1; i < args.length; i++) {
+            if (args[i].equals("--")) {
+                fernflowerArgsStart = i;
+            }
+        }
+
+        Path inputPath;
+        if (fernflowerArgsStart == -1 && args.length > 1) {
+            inputPath = Path.of(args[1]);
+        } else if (fernflowerArgsStart > 1) {
+            inputPath = Path.of(args[1]);
+        } else {
+            inputPath = basePath.resolve("input");
+        }
 
         long start = System.currentTimeMillis();
         List<Path> inputFiles = Files.walk(inputPath).filter(p -> !Files.isDirectory(p) && p.toString().endsWith(".class")).collect(java.util.stream.Collectors.toList());
@@ -28,10 +43,8 @@ public class DraftsmanDecompilationTest {
         System.out.println("Class transformation took " + (transformEnd - start) + "ms");
 
         List<String> fernflowerArgs = new ArrayList<>();
-        for (int i = 1; i < args.length; i++) {
-            if (args[i].equals("--")) {
-                fernflowerArgs.addAll(Arrays.asList(args).subList(i + 1, args.length));
-            }
+        if (fernflowerArgsStart != -1) {
+            fernflowerArgs.addAll(Arrays.asList(args).subList(fernflowerArgsStart + 1, args.length));
         }
         fernflowerArgs.add(tmpDir.toAbsolutePath().toString());
         fernflowerArgs.add(outputPath.toAbsolutePath().toString());

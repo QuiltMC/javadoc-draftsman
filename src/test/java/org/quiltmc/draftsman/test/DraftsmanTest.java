@@ -12,8 +12,13 @@ import java.util.Map;
 public class DraftsmanTest {
     public static void main(String[] args) throws IOException, URISyntaxException {
         Path basePath = Path.of(DraftsmanTest.class.getResource("DraftsmanTest.class").toURI()).getParent();
-        Path inputPath = basePath.resolve("input");
         Path outputPath = Path.of(args[0]);
+        Path inputPath;
+        if (args.length > 1) {
+            inputPath = Path.of(args[1]);
+        } else {
+            inputPath = basePath.resolve("input");
+        }
 
         List<Path> inputFiles = Files.walk(inputPath).filter(p -> !Files.isDirectory(p) && p.toString().endsWith(".class")).collect(java.util.stream.Collectors.toList());
         Map<Path, byte[]> transformedClasses = Draftsman.transformClasses(inputFiles, false, inputPath::relativize);
