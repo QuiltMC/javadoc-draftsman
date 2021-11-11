@@ -55,12 +55,13 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
         } else {
             // All instance fields need to be initialized in <init>
             instanceFields.add(fieldData);
+
+            // Fix record component access flags
+            if (isRecord && (access & ACC_PRIVATE) == 0) {
+                access |= ACC_PRIVATE;
+            }
         }
 
-        // Fix record component access flags
-        if (isRecord && (access & ACC_PRIVATE) == 0) {
-            access |= ACC_PRIVATE;
-        }
 
         return super.visitField(access, name, descriptor, signature, value);
     }
