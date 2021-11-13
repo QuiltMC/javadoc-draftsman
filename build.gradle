@@ -35,6 +35,10 @@ jar {
     }
 }
 
+java {
+    withSourcesJar()
+}
+
 publishing {
     def ENV = System.getenv()
     publications {
