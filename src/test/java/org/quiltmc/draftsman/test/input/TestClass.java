@@ -52,6 +52,10 @@ public class TestClass {
         this.constantC = constantC;
     }
 
+    private TestClass(Deque<Integer> constantC) {
+        this("", constantC);
+    }
+
     public static TestClass create(String fieldC) {
         return new TestClass(fieldC);
     }

@@ -21,7 +21,7 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
     private final List<FieldData> instanceFields = new ArrayList<>();
     private final List<MethodData> instanceInitializers = new ArrayList<>();
     private final Map<MethodData, List<Insn>> instanceInitializerInvokeSpecials = new HashMap<>();
-    private List<RecordComponent> recordComponents = new ArrayList<>();
+    private final List<RecordComponent> recordComponents = new ArrayList<>();
     private String className;
     private boolean isRecord;
     private String recordCanonicalConstructorDescriptor = "";
@@ -141,19 +141,19 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
 
             // Handle super/this constructor call
             Insn superInvokeSpecial = instanceInitializerInvokeSpecials.get(init).get(0); // Always the first one
-            List<Object> args = superInvokeSpecial.args();
-            String descriptor = (String) args.get(2);
+            List<Object> superInvokeSpecialArgs = superInvokeSpecial.args();
+            String descriptor = (String) superInvokeSpecialArgs.get(2);
             List<String> params = Util.splitDescriptorParameters(descriptor);
             for (String param : params) {
                 Util.addTypeDefaultToStack(param, visitor);
             }
 
-            visitor.visitMethodInsn(INVOKESPECIAL, (String) args.get(0), (String) args.get(1), (String) args.get(2), (Boolean) args.get(3));
+            visitor.visitMethodInsn(INVOKESPECIAL, (String) superInvokeSpecialArgs.get(0), (String) superInvokeSpecialArgs.get(1), (String) superInvokeSpecialArgs.get(2), (Boolean) superInvokeSpecialArgs.get(3));
 
             if (isRecord
                     // && isCanonicalConstructor
                     && init.descriptor.substring(1, init.descriptor.indexOf(')')).equals(recordCanonicalConstructorDescriptor)) {
-                // Add default record component initializations
+                // Create default record canonical constructor
                 int i = 1;
                 for (RecordComponent component : recordComponents) {
                     visitor.visitVarInsn(ALOAD, 0);
@@ -169,8 +169,14 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
 
                     visitor.visitFieldInsn(PUTFIELD, className, component.name, component.descriptor);
                 }
-            } else {
-                // Add field initializations
+
+                visitor.visitInsn(RETURN);
+                visitor.visitMaxs(0, 0);
+                visitor.visitEnd();
+                continue;
+            } else if (superInvokeSpecialArgs.get(0) != className) {
+                // Add field initializations if the called constructor is a super constructor
+                // (otherwise, we already did it in the called method)
                 for (FieldData field : instanceFields) {
                     visitor.visitVarInsn(ALOAD, 0);
 
