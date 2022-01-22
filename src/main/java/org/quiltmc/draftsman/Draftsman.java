@@ -1,9 +1,13 @@
 package org.quiltmc.draftsman;
 
+import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
-import org.quiltmc.draftsman.asm.DraftsmanClassTransformer;
+import org.objectweb.asm.util.TraceClassVisitor;
+import org.quiltmc.draftsman.asm.visitor.DraftsmanClassVisitor;
 
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -13,6 +17,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public class Draftsman {
+    private static final PrintWriter TRACE_WRITER = new PrintWriter(System.out);
     public static final int ASM_VERSION = Opcodes.ASM9;
 
     public static void main(String[] args) {
@@ -38,9 +43,7 @@ public class Draftsman {
         for (Path path : paths) {
             try {
                 byte[] classFile = Files.readAllBytes(path);
-                DraftsmanClassTransformer transformer = new DraftsmanClassTransformer(classFile, trace);
-                byte[] transformed = transformer.transform();
-                classFiles.put(pathProcessor.apply(path), transformed);
+                classFiles.put(pathProcessor.apply(path), trace ? transformClassTrace(classFile) : transformClass(classFile));
             } catch (IOException e) {
                 System.err.println("Failed to transform class file " + path);
                 e.printStackTrace();
@@ -56,6 +59,20 @@ public class Draftsman {
 
     public static Map<Path, byte[]> transformClasses(List<Path> inputFiles) {
         return transformClasses(inputFiles, false);
+    }
+
+    public static byte[] transformClass(byte[] classFile) {
+        ClassReader reader = new ClassReader(classFile);
+        ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_MAXS);
+        reader.accept(new DraftsmanClassVisitor(writer), 0);
+        return writer.toByteArray();
+    }
+
+    public static byte[] transformClassTrace(byte[] classFile) {
+        ClassReader reader = new ClassReader(classFile);
+        ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_MAXS);
+        reader.accept(new DraftsmanClassVisitor(new TraceClassVisitor(writer, TRACE_WRITER)), 0);
+        return writer.toByteArray();
     }
 
     public static void writeClasses(Path outputPath, Map<Path, byte[]> transformedClasses) throws IOException {

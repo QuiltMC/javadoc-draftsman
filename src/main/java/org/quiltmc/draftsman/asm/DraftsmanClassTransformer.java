@@ -9,6 +9,7 @@ import org.quiltmc.draftsman.asm.adapter.MethodEraserAdapter;
 
 import java.io.PrintWriter;
 
+@Deprecated
 public class DraftsmanClassTransformer {
     private static final PrintWriter TRACE_WRITER = new PrintWriter(System.out);
     private final ClassReader reader;
