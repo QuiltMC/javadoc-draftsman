@@ -107,6 +107,18 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
         // Add enum field initializations
         int enumIndex = 0;
         for (FieldData field : enumFields) {
+            /* Code:
+             * NAME("value");
+             * ====
+             * Bytecode:
+             * NEW com/example/TestEnum
+             * DUP
+             * LDC "NAME"
+             * ICONST_0
+             * LDC "value"
+             * INVOKESPECIAL com/example/TestEnum.<init> (Ljava/lang/String;ILjava/lang/String;)V
+             * PUTSTATIC com/example/TestEnum.NAME : Lcom/example/TestEnum;
+             */
             visitor.visitTypeInsn(NEW, className);
             visitor.visitInsn(DUP);
             visitor.visitLdcInsn(field.name);
@@ -122,7 +134,15 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
             visitor.visitFieldInsn(PUTSTATIC, className, field.name, field.descriptor);
         }
 
+        // Add static field initializations for the ones without an initial value
         for (FieldData field : noValueStaticFields) {
+            /* Code:
+             * static int staticField1 = 256;
+             * ====
+             * Bytecode:
+             * SIPUSH 256
+             * PUTSTATIC com/example/TestClass.staticField1 : I
+             */
             addFieldValueToStack(field, visitor);
             visitor.visitFieldInsn(PUTSTATIC, className, field.name, field.descriptor);
         }
@@ -137,9 +157,20 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
         for (MethodData init : instanceInitializers) {
             MethodVisitor visitor = super.visitMethod(init.access, init.name, init.descriptor, init.signature, init.exceptions);
             visitor.visitCode();
+            // Handle super/this constructor call
+            /*
+             * Code:
+             * this(arg, arg2, i);
+             * ====
+             * Bytecode:
+             * ALOAD 0
+             * ALOAD 1
+             * ALOAD 2
+             * ILOAD 3
+             * INVOKESPECIAL com/example/TestClass.<init> (Ljava/lang/String;Ljava/lang/Object;I)V
+             */
             visitor.visitVarInsn(ALOAD, 0);
 
-            // Handle super/this constructor call
             Insn superInvokeSpecial = instanceInitializerInvokeSpecials.get(init).get(0); // Always the first one
             List<Object> superInvokeSpecialArgs = superInvokeSpecial.args();
             String descriptor = (String) superInvokeSpecialArgs.get(2);
@@ -154,6 +185,19 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
                     // && isCanonicalConstructor
                     && init.descriptor.substring(1, init.descriptor.indexOf(')')).equals(recordCanonicalConstructorDescriptor)) {
                 // Create default record canonical constructor
+                /*
+                 * Code: (implicit)
+                 * this.field1 = field1;
+                 * this.field2 = field2;
+                 * ====
+                 * Bytecode:
+                 * ALOAD 0
+                 * ALOAD 1
+                 * PUTFIELD com/example/TestClass.field1 : Ljava/lang/Object;
+                 * ALOAD 0
+                 * ILOAD 2
+                 * PUTFIELD com/example/TestClass.field2 : I
+                 */
                 int i = 1;
                 for (RecordComponent component : recordComponents) {
                     visitor.visitVarInsn(ALOAD, 0);
