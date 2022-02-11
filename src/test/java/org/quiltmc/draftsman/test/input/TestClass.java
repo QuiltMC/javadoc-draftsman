@@ -31,6 +31,8 @@ public class TestClass {
     };
     private static Comparator<Integer> STATIC_FIELD_C = Comparator.comparing(Integer::intValue);
     public static AtomicReference<?> STATIC_FIELD_D;
+    public static String staticPrimitiveFieldA = "Foo bar";
+    public static int staticPrimitiveFieldB = 256;
     public final int primitiveConstantA = 5678;
     public final double primitiveConstantB = 2.71828;
     public final String primitiveConstantC = "Goodbye world";

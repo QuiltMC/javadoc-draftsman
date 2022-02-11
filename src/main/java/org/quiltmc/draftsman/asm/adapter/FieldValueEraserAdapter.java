@@ -11,20 +11,28 @@ import org.quiltmc.draftsman.asm.Insn;
 import org.quiltmc.draftsman.asm.visitor.InsnCollectorMethodVisitor;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
     private final List<FieldData> noValueStaticFields = new ArrayList<>();
     private final List<FieldData> enumFields = new ArrayList<>();
     private final List<FieldData> instanceFields = new ArrayList<>();
     private final List<MethodData> instanceInitializers = new ArrayList<>();
+    private InsnCollectorMethodVisitor clInitInsnCollector;
     private final Map<MethodData, List<Insn>> instanceInitializerInvokeSpecials = new HashMap<>();
+    private final Map<MethodData, InsnCollectorMethodVisitor> instanceInitializerInsnCollectors = new HashMap<>();
     private final List<RecordComponent> recordComponents = new ArrayList<>();
     private String className;
+    private boolean hasClinit = false;
     private boolean isRecord;
     private String recordCanonicalConstructorDescriptor = "";
+
+    private Map<FieldData, Object> fieldDefaultValues;
 
     public FieldValueEraserAdapter(ClassVisitor classVisitor) {
         super(Draftsman.ASM_VERSION, classVisitor);
@@ -77,7 +85,11 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
     @Override
     public MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
         if (name.equals("<clinit>")) {
-            return null; // Remove clinit
+            hasClinit = true;
+            // Save instructions for later
+            InsnCollectorMethodVisitor visitor = new InsnCollectorMethodVisitor(null);
+            clInitInsnCollector = visitor;
+            return visitor;
         } else if (name.equals("<init>")) {
             MethodData init = new MethodData(access, name, descriptor, signature, exceptions);
             instanceInitializers.add(init);
@@ -85,6 +97,9 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
             // Save invokespecial instructions for later (we need the super/this constructor)
             InsnCollectorMethodVisitor visitor = new InsnCollectorMethodVisitor(null, INVOKESPECIAL);
             instanceInitializerInvokeSpecials.put(init, visitor.getInsns());
+            // Save all instructions for later
+            visitor = new InsnCollectorMethodVisitor(visitor);
+            instanceInitializerInsnCollectors.put(init, visitor);
 
             return visitor;
         }
@@ -100,7 +115,146 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
         super.visitEnd();
     }
 
+    private static boolean isConstantOpcode(int opcode) {
+        return opcode >= ICONST_M1 && opcode <= LDC;
+    }
+
+    private static Object getConstantInsnValue(Insn insn) {
+        int opcode = insn.opcode();
+        if (!isConstantOpcode(opcode)) {
+            throw new IllegalArgumentException("Not a constant instruction: " + insn);
+        }
+
+        if (opcode >= ICONST_M1 && opcode <= ICONST_5) {
+            return opcode - ICONST_0;
+        } else if (opcode >= LCONST_0 && opcode <= LCONST_1) {
+            return opcode - LCONST_0;
+        } else if (opcode >= FCONST_0 && opcode <= FCONST_2) {
+            return opcode - FCONST_0;
+        } else if (opcode >= DCONST_0 && opcode <= DCONST_1) {
+            return opcode - DCONST_0;
+        } else {
+            return insn.getArg(0);
+        }
+    }
+
+    private Map<FieldData, Object> getStaticFieldDefaultValues() {
+        if (!hasClinit) {
+            return Collections.emptyMap();
+        }
+
+        /*
+         * Code:
+         * static int staticField1 = 213;
+         * static String staticField2 = "Hello world";
+         * ====
+         * Bytecode:
+         * SIPUSH 213
+         * PUTSTATIC com/example/TestClass.staticField1 : I
+         * LDC "Hello world"
+         * PUTSTATIC com/example/TestClass.staticField2 : Ljava/lang/String;
+         */
+        List<Insn> insns = clInitInsnCollector.getInsns();
+        List<Integer> putStaticInsnIndexes = new ArrayList<>();
+        for (int i = 0; i < insns.size(); i++) {
+            Insn insn = insns.get(i);
+            if (insn.opcode() == PUTSTATIC) {
+                putStaticInsnIndexes.add(i);
+            }
+        }
+
+        Map<FieldData, Object> values = new HashMap<>();
+        for (int i : putStaticInsnIndexes) {
+            if (i <= 0) {
+                continue;
+            }
+            Insn insn = insns.get(i);
+            Insn prevInsn = insns.get(i - 1);
+            if (isConstantOpcode(prevInsn.opcode())) {
+                String name = (String) insn.getArg(1);
+                String descriptor = (String) insn.getArg(2);
+                FieldData fieldData = new FieldData(0, name, descriptor, null, null);
+                values.put(fieldData, getConstantInsnValue(prevInsn));
+            }
+        }
+
+        return values;
+    }
+
+    private void computeFieldDefaultValues() {
+        Map<MethodData, List<Insn>> initializerInsns = instanceInitializerInsnCollectors.entrySet().stream()
+                .filter(e -> !hasThisConstructorCall(e.getKey()))
+                .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().getInsns()));
+
+        // Get instructions common for each constructor
+        int maxCommonInsns = initializerInsns.values().stream().mapToInt(List::size).min().orElse(0);
+        List<Insn> commonInsns = new ArrayList<>();
+        for (int i = 0; i < maxCommonInsns; i++) {
+            Insn insn = null;
+            for (List<Insn> insns : initializerInsns.values()) {
+                if (insn == null) {
+                    insn = insns.get(i);
+                } else if (!insn.equals(insns.get(i))) {
+                    break;
+                }
+            }
+            commonInsns.add(insn);
+        }
+
+        /*
+         * Code:
+         * int field1 = -1;
+         * String field2 = "Foo bar";
+         * ====
+         * Bytecode:
+         * ALOAD 0
+         * ICONST_M1
+         * PUTFIELD com/example/TestClass.field1 : I
+         * ALOAD 0
+         * LDC "Foo bar"
+         * PUTFIELD com/example/TestClass.field2 : Ljava/lang/String;
+         */
+        List<Integer> putFieldInsnIndexes = new ArrayList<>();
+        for (int i = 0; i < commonInsns.size(); i++) {
+            Insn insn = commonInsns.get(i);
+            if (insn.opcode() == PUTFIELD) {
+                putFieldInsnIndexes.add(i);
+            }
+        }
+
+        Map<FieldData, Object> values = new HashMap<>();
+        for (int i : putFieldInsnIndexes) {
+            if (i <= 0) {
+                continue;
+            }
+            Insn insn = commonInsns.get(i);
+            Insn prevInsn = commonInsns.get(i - 1);
+            Insn prevPrevInsn = commonInsns.get(i - 2);
+            if (prevPrevInsn.opcode() == ALOAD && (Integer) prevPrevInsn.getArg(0) == 0) {
+                if (isConstantOpcode(prevInsn.opcode())) {
+                    String name = (String) insn.getArg(1);
+                    String descrptor = (String) insn.getArg(2);
+                    FieldData fieldData = new FieldData(0, name, descrptor, null, null);
+                    values.put(fieldData, getConstantInsnValue(prevInsn));
+                }
+            }
+        }
+        fieldDefaultValues = values;
+    }
+
+    private Map<FieldData, Object> getFieldDefaultValues() {
+        if (fieldDefaultValues == null) {
+            computeFieldDefaultValues();
+        }
+
+        return fieldDefaultValues;
+    }
+
     private void generateClInit() {
+        if (!hasClinit) {
+            return;
+        }
+
         MethodVisitor visitor = super.visitMethod(ACC_STATIC, "<clinit>", "()V", null, null);
         visitor.visitCode();
 
@@ -134,6 +288,7 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
             visitor.visitFieldInsn(PUTSTATIC, className, field.name, field.descriptor);
         }
 
+        Map<FieldData, Object> defaultValues = getStaticFieldDefaultValues();
         // Add static field initializations for the ones without an initial value
         for (FieldData field : noValueStaticFields) {
             /* Code:
@@ -143,7 +298,9 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
              * SIPUSH 256
              * PUTSTATIC com/example/TestClass.staticField1 : I
              */
-            addFieldValueToStack(field, visitor);
+            // If the field has a default value, use it
+            Optional<FieldData> defaultValueKey = defaultValues.keySet().stream().filter(f -> f.isSameField(field)).findAny();
+            addFieldValueToStack(field, visitor, defaultValueKey.map(defaultValues::get).orElse(field.value));
             visitor.visitFieldInsn(PUTSTATIC, className, field.name, field.descriptor);
         }
 
@@ -154,6 +311,8 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
     }
 
     private void generateInits() {
+        Map<FieldData, Object> defaultValues = getFieldDefaultValues();
+
         for (MethodData init : instanceInitializers) {
             MethodVisitor visitor = super.visitMethod(init.access, init.name, init.descriptor, init.signature, init.exceptions);
             visitor.visitCode();
@@ -224,7 +383,9 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
                 for (FieldData field : instanceFields) {
                     visitor.visitVarInsn(ALOAD, 0);
 
-                    addFieldValueToStack(field, visitor);
+                    // If the field has a default value, use it
+                    Optional<FieldData> defaultValueKey = defaultValues.keySet().stream().filter(f -> f.isSameField(field)).findAny();
+                    addFieldValueToStack(field, visitor, defaultValueKey.map(defaultValues::get).orElse(field.value));
 
                     visitor.visitFieldInsn(PUTFIELD, className, field.name, field.descriptor);
                 }
@@ -239,8 +400,7 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
         }
     }
 
-    private static void addFieldValueToStack(FieldData field, MethodVisitor visitor) {
-        Object value = field.value;
+    private static void addFieldValueToStack(FieldData field, MethodVisitor visitor, Object value) {
         if (value == null) {
             Util.addTypeDefaultToStack(field.descriptor, visitor);
 
@@ -255,7 +415,23 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
         visitor.visitLdcInsn(value);
     }
 
+    /**
+     * {@return whether the given method is a constructor and has a call to this()}
+     */
+    private boolean hasThisConstructorCall(MethodData method) {
+        if (!instanceInitializers.contains(method)) {
+            return false;
+        }
+
+        Insn invokeSpecial = instanceInitializerInvokeSpecials.get(method).get(0);
+        String className = (String) invokeSpecial.getArg(0);
+        return className.equals(this.className);
+    }
+
     public record FieldData(int access, String name, String descriptor, String signature, Object value) {
+        public boolean isSameField(FieldData other) {
+            return other.name.equals(name) && other.descriptor.equals(descriptor);
+        }
     }
 
     public record MethodData(int access, String name, String descriptor, String signature, String[] exceptions) {

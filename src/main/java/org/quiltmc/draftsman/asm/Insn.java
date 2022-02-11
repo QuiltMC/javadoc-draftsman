@@ -18,4 +18,8 @@ public record Insn(int opcode, List<Object> args) {
     public Insn(int opcode, Object... args) {
         this(opcode, List.of(args));
     }
+
+    public Object getArg(int index) {
+        return args.get(index);
+    }
 }

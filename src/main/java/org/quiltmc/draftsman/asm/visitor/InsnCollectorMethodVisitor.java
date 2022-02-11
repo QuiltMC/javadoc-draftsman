@@ -46,6 +46,10 @@ public class InsnCollectorMethodVisitor extends MethodVisitor implements Opcodes
         return insns;
     }
 
+    public boolean collectsEverything() {
+        return collectEverything;
+    }
+
     private void collect(int opcode, Object... args) {
         if (collectEverything || opcodes.contains(opcode)) {
             insns.add(new Insn(opcode, args));
