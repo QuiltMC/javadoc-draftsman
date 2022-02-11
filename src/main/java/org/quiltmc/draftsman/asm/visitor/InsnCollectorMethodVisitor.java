@@ -11,26 +11,43 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+/**
+ * Collects instructions from a method.
+ */
 public class InsnCollectorMethodVisitor extends MethodVisitor implements Opcodes {
+    private final boolean collectEverything;
     private final List<Integer> opcodes;
     private final List<Insn> insns = new ArrayList<>();
 
+    /**
+     * @param methodVisitor the method visitor to which this visitor must delegate method calls. May be null.
+     * @param opcodes       the opcodes to collect. May be empty, in which case every opcode is collected.
+     */
     public InsnCollectorMethodVisitor(MethodVisitor methodVisitor, int... opcodes) {
         super(Draftsman.ASM_VERSION, methodVisitor);
         this.opcodes = Arrays.stream(opcodes).boxed().toList();
+        this.collectEverything = this.opcodes.isEmpty();
     }
 
+    /**
+     * @param methodVisitor the method visitor to which this visitor must delegate method calls. May be null.
+     * @param opcodes       the opcodes to collect. May be empty, in which case every opcode is collected.
+     */
     public InsnCollectorMethodVisitor(MethodVisitor methodVisitor, List<Integer> opcodes) {
         super(Draftsman.ASM_VERSION, methodVisitor);
         this.opcodes = opcodes;
+        this.collectEverything = this.opcodes.isEmpty();
     }
 
+    /**
+     * {@return the collected instructions.}
+     */
     public List<Insn> getInsns() {
         return insns;
     }
 
     private void collect(int opcode, Object... args) {
-        if (opcodes.contains(opcode)) {
+        if (collectEverything || opcodes.contains(opcode)) {
             insns.add(new Insn(opcode, args));
         }
     }
