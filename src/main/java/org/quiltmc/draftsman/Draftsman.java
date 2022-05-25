@@ -4,6 +4,7 @@ import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.util.TraceClassVisitor;
+import org.quiltmc.draftsman.asm.DraftsmanClassAdapter;
 import org.quiltmc.draftsman.asm.visitor.DraftsmanClassVisitor;
 
 import java.io.IOException;
@@ -15,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class Draftsman {
     private static final PrintWriter TRACE_WRITER = new PrintWriter(System.out);
@@ -24,9 +26,9 @@ public class Draftsman {
         Path inputPath = Path.of(args[0]);
         Path outputPath = Path.of(args[1]);
 
-        try {
+        try (Stream<Path> files = Files.walk(inputPath)) {
             // TODO: Jar support
-            List<Path> inputFiles = Files.walk(inputPath).filter(p -> !Files.isDirectory(p) && p.toString().endsWith(".class")).collect(Collectors.toList());
+            List<Path> inputFiles = files.filter(p -> !Files.isDirectory(p) && p.toString().endsWith(".class")).collect(Collectors.toList());
 
             Map<Path, byte[]> classFiles = transformClasses(inputFiles, false, inputPath::relativize);
 
@@ -64,6 +66,7 @@ public class Draftsman {
     public static byte[] transformClass(byte[] classFile) {
         ClassReader reader = new ClassReader(classFile);
         ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_MAXS);
+        // DraftsmanClassAdapter.adapt(reader, writer);
         reader.accept(new DraftsmanClassVisitor(writer), 0);
         return writer.toByteArray();
     }
@@ -71,6 +74,7 @@ public class Draftsman {
     public static byte[] transformClassTrace(byte[] classFile) {
         ClassReader reader = new ClassReader(classFile);
         ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_MAXS);
+        // DraftsmanClassAdapter.adapt(reader, new TraceClassVisitor(writer, TRACE_WRITER));
         reader.accept(new DraftsmanClassVisitor(new TraceClassVisitor(writer, TRACE_WRITER)), 0);
         return writer.toByteArray();
     }

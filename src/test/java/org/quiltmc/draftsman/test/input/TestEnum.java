@@ -9,6 +9,7 @@ public enum TestEnum {
     SIX("six"),
     SEVEN("seven");
 
+    private static String CONSTANT = "constant";
     private final String s;
 
     TestEnum(String s) {

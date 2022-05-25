@@ -12,6 +12,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class DraftsmanDecompilationTest {
     public static void main(String[] args) throws URISyntaxException, IOException {
@@ -34,8 +35,12 @@ public class DraftsmanDecompilationTest {
             inputPath = basePath.resolve("input");
         }
 
+        List<Path> inputFiles;
+        try (Stream<Path> paths = Files.walk(inputPath)) {
+            inputFiles = paths.filter(p -> !Files.isDirectory(p) && p.toString().endsWith(".class")).collect(Collectors.toList());
+        }
+
         long start = System.currentTimeMillis();
-        List<Path> inputFiles = Files.walk(inputPath).filter(p -> !Files.isDirectory(p) && p.toString().endsWith(".class")).collect(Collectors.toList());
         Map<Path, byte[]> transformedClasses = Draftsman.transformClasses(inputFiles, false, inputPath::relativize);
 
         Path tmpDir = Files.createTempDirectory("draftsman-decompilation-test");
