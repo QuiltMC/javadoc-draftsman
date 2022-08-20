@@ -11,7 +11,7 @@ public enum TestComplexEnum {
     private final TestRecord[] a;
     private final TestRecord[] b;
 
-    TestComplexEnum(TestClass[] testClasses, float f, boolean bool, TestRecord[] a, TestRecord[] b) {
+    TestComplexEnum(TestClass[] testClasses, float f, boolean bool, TestRecord[] a, @Deprecated TestRecord[] b) {
         this.testClasses = testClasses;
         this.f = f;
         this.bool = bool;
