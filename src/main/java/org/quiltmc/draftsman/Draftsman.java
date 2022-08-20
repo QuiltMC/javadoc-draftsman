@@ -4,8 +4,7 @@ import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.util.TraceClassVisitor;
-import org.quiltmc.draftsman.asm.DraftsmanClassAdapter;
-import org.quiltmc.draftsman.asm.visitor.DraftsmanClassVisitor;
+import org.quiltmc.draftsman.asm.visitor.DraftsmanAdapterClassVisitor;
 
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -66,16 +65,14 @@ public class Draftsman {
     public static byte[] transformClass(byte[] classFile) {
         ClassReader reader = new ClassReader(classFile);
         ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_MAXS);
-        // DraftsmanClassAdapter.adapt(reader, writer);
-        reader.accept(new DraftsmanClassVisitor(writer), 0);
+        reader.accept(new DraftsmanAdapterClassVisitor(writer), 0);
         return writer.toByteArray();
     }
 
     public static byte[] transformClassTrace(byte[] classFile) {
         ClassReader reader = new ClassReader(classFile);
         ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_MAXS);
-        // DraftsmanClassAdapter.adapt(reader, new TraceClassVisitor(writer, TRACE_WRITER));
-        reader.accept(new DraftsmanClassVisitor(new TraceClassVisitor(writer, TRACE_WRITER)), 0);
+        reader.accept(new DraftsmanAdapterClassVisitor(new TraceClassVisitor(writer, TRACE_WRITER)), 0);
         return writer.toByteArray();
     }
 
