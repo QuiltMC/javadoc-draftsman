@@ -2,6 +2,7 @@ package org.quiltmc.draftsman;
 
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.IincInsnNode;
@@ -16,50 +17,17 @@ import org.objectweb.asm.tree.TableSwitchInsnNode;
 import org.objectweb.asm.tree.TypeInsnNode;
 import org.objectweb.asm.tree.VarInsnNode;
 
-import java.util.ArrayList;
-import java.util.List;
-
 public class Util implements Opcodes {
-    public static List<String> splitDescriptorParameters(String descriptor) {
-        String desc = descriptor.substring(1, descriptor.indexOf(')'));
-        List<String> params = new ArrayList<>();
-
-        for (int i = 0; i < desc.length(); i++) {
-            String param = getFirstDescriptor(desc.substring(i));
-            params.add(param);
-            i += param.length() - 1;
-        }
-
-        return params;
+    public static void pushTypeDefaultToStack(String descriptor, MethodVisitor visitor) {
+        pushTypeDefaultToStack(Type.getType(descriptor), visitor);
     }
 
-    private static String getFirstDescriptor(String descriptor) {
-        char c = descriptor.charAt(0);
-        String d = switch (c) {
-            case 'B', 'C', 'D', 'F', 'I', 'J', 'S', 'Z' -> String.valueOf(c);
-            default -> null;
-        };
-        if (d != null) {
-            return d;
-        }
-
-        if (c == 'L') {
-            return descriptor.substring(0, descriptor.indexOf(";") + 1);
-        }
-
-        if (c == '[') {
-            return c + getFirstDescriptor(descriptor.substring(1));
-        }
-
-        return null;
-    }
-
-    public static void addTypeDefaultToStack(String descriptor, MethodVisitor visitor) {
-        switch (descriptor) {
-            case "B", "C", "I", "S", "Z" -> visitor.visitInsn(ICONST_0);
-            case "D" -> visitor.visitInsn(DCONST_0);
-            case "F" -> visitor.visitInsn(FCONST_0);
-            case "J" -> visitor.visitInsn(LCONST_0);
+    public static void pushTypeDefaultToStack(Type type, MethodVisitor visitor) {
+        switch (type.getSort()) {
+            case Type.BYTE, Type.CHAR, Type.INT, Type.SHORT, Type.BOOLEAN -> visitor.visitInsn(ICONST_0);
+            case Type.DOUBLE -> visitor.visitInsn(DCONST_0);
+            case Type.FLOAT -> visitor.visitInsn(FCONST_0);
+            case Type.LONG -> visitor.visitInsn(LCONST_0);
             default -> visitor.visitInsn(ACONST_NULL);
         }
     }

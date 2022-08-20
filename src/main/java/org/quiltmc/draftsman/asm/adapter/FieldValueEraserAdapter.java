@@ -5,6 +5,7 @@ import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.RecordComponentVisitor;
+import org.objectweb.asm.Type;
 import org.quiltmc.draftsman.Draftsman;
 import org.quiltmc.draftsman.Util;
 import org.quiltmc.draftsman.asm.Insn;
@@ -278,10 +279,11 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
             visitor.visitLdcInsn(field.name);
             Util.makeSimplestIPush(enumIndex++, visitor);
             MethodData initializer = instanceInitializers.get(0);
-            List<String> initializerParams = Util.splitDescriptorParameters(initializer.descriptor);
+            Type type = Type.getMethodType(initializer.descriptor);
+            Type[] initializerParams = type.getArgumentTypes();
 
-            for (int i = 2; i < initializerParams.size(); i++) {
-                Util.addTypeDefaultToStack(initializerParams.get(i), visitor);
+            for (int i = 2; i < initializerParams.length; i++) {
+                Util.pushTypeDefaultToStack(initializerParams[i], visitor);
             }
 
             visitor.visitMethodInsn(INVOKESPECIAL, className, "<init>", initializer.descriptor, false);
@@ -333,9 +335,9 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
             Insn superInvokeSpecial = instanceInitializerInvokeSpecials.get(init).get(0); // Always the first one
             List<Object> superInvokeSpecialArgs = superInvokeSpecial.args();
             String descriptor = (String) superInvokeSpecialArgs.get(2);
-            List<String> params = Util.splitDescriptorParameters(descriptor);
-            for (String param : params) {
-                Util.addTypeDefaultToStack(param, visitor);
+            Type[] params = Type.getMethodType(descriptor).getArgumentTypes();
+            for (Type param : params) {
+                Util.pushTypeDefaultToStack(param, visitor);
             }
 
             visitor.visitMethodInsn(INVOKESPECIAL, (String) superInvokeSpecialArgs.get(0), (String) superInvokeSpecialArgs.get(1), (String) superInvokeSpecialArgs.get(2), (Boolean) superInvokeSpecialArgs.get(3));
@@ -402,7 +404,7 @@ public class FieldValueEraserAdapter extends ClassVisitor implements Opcodes {
 
     private static void addFieldValueToStack(FieldData field, MethodVisitor visitor, Object value) {
         if (value == null) {
-            Util.addTypeDefaultToStack(field.descriptor, visitor);
+            Util.pushTypeDefaultToStack(field.descriptor, visitor);
 
             return;
         }

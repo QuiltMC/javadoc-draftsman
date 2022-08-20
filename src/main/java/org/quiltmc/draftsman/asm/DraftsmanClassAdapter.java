@@ -1,14 +1,17 @@
 package org.quiltmc.draftsman.asm;
 
+import org.jetbrains.annotations.Contract;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.FieldNode;
 import org.objectweb.asm.tree.InsnList;
+import org.objectweb.asm.tree.LocalVariableNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.RecordComponentNode;
@@ -26,8 +29,23 @@ public class DraftsmanClassAdapter implements Opcodes {
     public static void adapt(ClassReader reader, ClassVisitor visitor) {
         ClassNode classNode = new ClassNode();
         reader.accept(classNode, 0);
+        adapt(classNode, visitor);
+    }
+
+    public static void adapt(ClassNode classNode, ClassVisitor visitor) {
+        ClassNode newClassNode = adapt(classNode);
+        newClassNode.accept(visitor);
+    }
+
+    @Contract("null -> null; !null -> new")
+    public static ClassNode adapt(ClassNode classNode) {
+        if (classNode == null) {
+            return null;
+        }
+
         ClassNode newClassNode = new ClassNode();
 
+        // Copy data from the class
         newClassNode.version = classNode.version;
         newClassNode.access = classNode.access;
         newClassNode.name = classNode.name;
@@ -62,7 +80,7 @@ public class DraftsmanClassAdapter implements Opcodes {
             }
         }
 
-        newClassNode.accept(visitor);
+        return newClassNode;
     }
 
     private static <T extends AbstractInsnNode> T findInsnByOpcode(MethodNode method, int opcode) {
@@ -115,13 +133,14 @@ public class DraftsmanClassAdapter implements Opcodes {
             return false;
         }
 
-        String descriptor = classNode.recordComponents.stream().map(c -> c.descriptor).reduce("", (a, b) -> a + b);
-        return init.desc.substring(1, init.desc.indexOf(')')).equals(descriptor);
+        String argsDescriptor = classNode.recordComponents.stream().map(c -> c.descriptor).reduce("", (a, b) -> a + b);
+        Type type = Type.getMethodType(String.format("(%s)V", argsDescriptor));
+        return Type.getMethodType(init.desc).equals(type);
     }
 
     private static void addFieldValueToStack(FieldNode field, MethodVisitor visitor, Object value) {
         if (value == null) {
-            Util.addTypeDefaultToStack(field.desc, visitor);
+            Util.pushTypeDefaultToStack(field.desc, visitor);
             return;
         }
 
@@ -247,6 +266,7 @@ public class DraftsmanClassAdapter implements Opcodes {
 
     private static MethodNode eraseClInit(MethodNode original, ClassNode classNode, Map<FieldNode, Object> fieldDefaultValues) {
         MethodNode m = new MethodNode(original.access, original.name, original.desc, original.signature, original.exceptions.toArray(new String[0]));
+        copyMethodData(original, m);
         m.visitCode();
 
         // Get an instance initializer
@@ -254,7 +274,7 @@ public class DraftsmanClassAdapter implements Opcodes {
                 .filter(m2 -> m2.name.equals("<init>"))
                 .findFirst()
                 .orElseThrow(() -> new RuntimeException("No instance initializer found"));
-        List<String> initParams = Util.splitDescriptorParameters(init.desc);
+        Type[] initParams = Type.getMethodType(init.desc).getArgumentTypes();
 
         // Add enum field initializations
         int enumIndex = 0;
@@ -280,8 +300,8 @@ public class DraftsmanClassAdapter implements Opcodes {
             m.visitLdcInsn(field.name);
             Util.makeSimplestIPush(enumIndex++, m);
 
-            for (int i = 2; i < initParams.size(); i++) {
-                Util.addTypeDefaultToStack(initParams.get(i), m);
+            for (int i = 2; i < initParams.length; i++) {
+                Util.pushTypeDefaultToStack(initParams[i], m);
             }
 
             m.visitMethodInsn(INVOKESPECIAL, classNode.name, "<init>", init.desc, false);
@@ -305,6 +325,7 @@ public class DraftsmanClassAdapter implements Opcodes {
 
     private static MethodNode eraseInit(MethodNode original, ClassNode classNode, Map<FieldNode, Object> fieldDefaultValues) {
         MethodNode m = new MethodNode(original.access, original.name, original.desc, original.signature, original.exceptions.toArray(new String[0]));
+        copyMethodData(original, m);
         m.visitCode();
 
         // Handle super/this constructor call
@@ -328,9 +349,9 @@ public class DraftsmanClassAdapter implements Opcodes {
             throw new RuntimeException("Could not find INVOKESPECIAL in constructor");
         }
 
-        List<String> params = Util.splitDescriptorParameters(invokeSpecial.desc);
-        for (String param : params) {
-            Util.addTypeDefaultToStack(param, m);
+        Type[] params = Type.getMethodType(invokeSpecial.desc).getArgumentTypes();
+        for (Type param : params) {
+            Util.pushTypeDefaultToStack(param, m);
         }
 
         invokeSpecial.accept(m);
@@ -354,11 +375,12 @@ public class DraftsmanClassAdapter implements Opcodes {
             for (RecordComponentNode component : classNode.recordComponents) {
                 ALOAD_0.accept(m);
 
-                switch (component.descriptor) {
-                    case "B", "C", "I", "S", "Z" -> m.visitVarInsn(ILOAD, i);
-                    case "D" -> m.visitVarInsn(DLOAD, i++);
-                    case "F" -> m.visitVarInsn(FLOAD, i);
-                    case "J" -> m.visitVarInsn(LLOAD, i++);
+                Type type = Type.getType(component.descriptor);
+                switch (type.getSort()) {
+                    case Type.BYTE, Type.CHAR, Type.INT, Type.SHORT, Type.BOOLEAN -> m.visitVarInsn(ILOAD, i);
+                    case Type.DOUBLE -> m.visitVarInsn(DLOAD, i++);
+                    case Type.FLOAT -> m.visitVarInsn(FLOAD, i);
+                    case Type.LONG -> m.visitVarInsn(LLOAD, i++);
                     default -> m.visitVarInsn(ALOAD, i);
                 }
                 i++;
@@ -395,8 +417,43 @@ public class DraftsmanClassAdapter implements Opcodes {
         }
 
         MethodNode m = new MethodNode(original.access, original.name, original.desc, original.signature, original.exceptions.toArray(new String[0]));
+        copyMethodData(original, m);
+
         m.visitCode();
         throwEndMethod(m);
         return m;
+    }
+
+    private static void copyMethodData(MethodNode original, MethodNode m) {
+        m.parameters = original.parameters;
+        m.visibleAnnotations = original.visibleAnnotations;
+        m.invisibleAnnotations = original.invisibleAnnotations;
+        m.visibleTypeAnnotations = original.visibleTypeAnnotations;
+        m.invisibleTypeAnnotations = original.invisibleTypeAnnotations;
+        m.attrs = original.attrs;
+        m.annotationDefault = original.annotationDefault;
+        m.visibleAnnotableParameterCount = original.visibleAnnotableParameterCount;
+        m.visibleParameterAnnotations = original.visibleParameterAnnotations;
+        m.invisibleAnnotableParameterCount = original.invisibleAnnotableParameterCount;
+        m.invisibleParameterAnnotations = original.invisibleParameterAnnotations;
+
+        copyParameterLvt(original, m);
+    }
+
+    private static void copyParameterLvt(MethodNode original, MethodNode m) {
+        boolean isStatic = (original.access & ACC_STATIC) != 0;
+        Type type = Type.getMethodType(original.desc);
+        int maxIndex = (type.getArgumentsAndReturnSizes() >> 2) - (isStatic ? 1 : 0);
+
+        List<LocalVariableNode> newLocals = new ArrayList<>();
+        for (LocalVariableNode node : original.localVariables) {
+            if (node.index > maxIndex) {
+                break;
+            }
+
+            newLocals.add(node);
+        }
+
+        m.localVariables = newLocals;
     }
 }
