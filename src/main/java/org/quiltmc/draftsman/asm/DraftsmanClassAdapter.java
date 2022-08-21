@@ -24,7 +24,7 @@ import java.util.List;
 import java.util.Map;
 
 public class DraftsmanClassAdapter implements Opcodes {
-    private static final VarInsnNode ALOAD_0 = new VarInsnNode(ALOAD, 0);
+    private static final VarInsnNode ALOAD_0_NODE = new VarInsnNode(ALOAD, 0);
 
     public static void adapt(ClassReader reader, ClassVisitor visitor) {
         ClassNode classNode = new ClassNode();
@@ -138,7 +138,7 @@ public class DraftsmanClassAdapter implements Opcodes {
         return Type.getMethodType(init.desc).equals(type);
     }
 
-    private static void addFieldValueToStack(FieldNode field, MethodVisitor visitor, Object value) {
+    private static void pushFieldValueToStack(FieldNode field, MethodVisitor visitor, Object value) {
         if (value == null) {
             Util.pushTypeDefaultToStack(field.desc, visitor);
             return;
@@ -269,52 +269,55 @@ public class DraftsmanClassAdapter implements Opcodes {
         copyMethodData(original, m);
         m.visitCode();
 
-        // Get an instance initializer
-        MethodNode init = classNode.methods.stream()
-                .filter(m2 -> m2.name.equals("<init>"))
-                .findFirst()
-                .orElseThrow(() -> new RuntimeException("No instance initializer found"));
-        Type[] initParams = Type.getMethodType(init.desc).getArgumentTypes();
+        if ((classNode.access & ACC_ENUM) != 0) {
+            // Get an instance initializer
+            MethodNode init = classNode.methods.stream()
+                    .filter(m2 -> m2.name.equals("<init>"))
+                    .findFirst()
+                    .orElseThrow(() -> new RuntimeException("No enum instance initializer found"));
+            Type[] initParams = Type.getMethodType(init.desc).getArgumentTypes();
 
-        // Add enum field initializations
-        int enumIndex = 0;
-        for (FieldNode field : classNode.fields) {
-            if ((field.access & ACC_ENUM) == 0) {
-                continue;
+            // Add enum field initializations
+            int enumIndex = 0;
+            for (FieldNode field : classNode.fields) {
+                if ((field.access & ACC_ENUM) == 0) {
+                    continue;
+                }
+
+                /* Code:
+                 * NAME("value");
+                 * ====
+                 * Bytecode:
+                 * NEW com/example/TestEnum
+                 * DUP
+                 * LDC "NAME"
+                 * ICONST_0
+                 * LDC "value"
+                 * INVOKESPECIAL com/example/TestEnum.<init> (Ljava/lang/String;ILjava/lang/String;)V
+                 * PUTSTATIC com/example/TestEnum.NAME : Lcom/example/TestEnum;
+                 */
+                m.visitTypeInsn(NEW, classNode.name);
+                m.visitInsn(DUP);
+                m.visitLdcInsn(field.name);
+                Util.makeSimplestIPush(enumIndex++, m);
+
+                for (int i = 2; i < initParams.length; i++) {
+                    Util.pushTypeDefaultToStack(initParams[i], m);
+                }
+
+                m.visitMethodInsn(INVOKESPECIAL, classNode.name, "<init>", init.desc, false);
+                m.visitFieldInsn(PUTSTATIC, classNode.name, field.name, field.desc);
             }
-
-            /* Code:
-             * NAME("value");
-             * ====
-             * Bytecode:
-             * NEW com/example/TestEnum
-             * DUP
-             * LDC "NAME"
-             * ICONST_0
-             * LDC "value"
-             * INVOKESPECIAL com/example/TestEnum.<init> (Ljava/lang/String;ILjava/lang/String;)V
-             * PUTSTATIC com/example/TestEnum.NAME : Lcom/example/TestEnum;
-             */
-            m.visitTypeInsn(NEW, classNode.name);
-            m.visitInsn(DUP);
-            m.visitLdcInsn(field.name);
-            Util.makeSimplestIPush(enumIndex++, m);
-
-            for (int i = 2; i < initParams.length; i++) {
-                Util.pushTypeDefaultToStack(initParams[i], m);
-            }
-
-            m.visitMethodInsn(INVOKESPECIAL, classNode.name, "<init>", init.desc, false);
-            m.visitFieldInsn(PUTSTATIC, classNode.name, field.name, field.desc);
         }
 
+        // Set static fields to their erased values
         for (FieldNode field : classNode.fields) {
             if ((field.access & ACC_STATIC) == 0 || (field.access & ACC_ENUM) != 0 || field.value != null) {
                 continue;
             }
 
             Object defaultValue = getForField(field, fieldDefaultValues);
-            addFieldValueToStack(field, m, defaultValue != null ? defaultValue : field.value);
+            pushFieldValueToStack(field, m, defaultValue != null ? defaultValue : field.value);
 
             m.visitFieldInsn(PUTSTATIC, classNode.name, field.name, field.desc);
         }
@@ -340,7 +343,7 @@ public class DraftsmanClassAdapter implements Opcodes {
          * ILOAD 3
          * INVOKESPECIAL com/example/TestClass.<init> (Ljava/lang/String;Ljava/lang/Object;I)V
          */
-        ALOAD_0.accept(m);
+        ALOAD_0_NODE.accept(m);
 
         // Get invokespecial from original method
         MethodInsnNode invokeSpecial = findInsnByOpcode(original, INVOKESPECIAL);
@@ -373,7 +376,7 @@ public class DraftsmanClassAdapter implements Opcodes {
              */
             int i = 1;
             for (RecordComponentNode component : classNode.recordComponents) {
-                ALOAD_0.accept(m);
+                ALOAD_0_NODE.accept(m);
 
                 Type type = Type.getType(component.descriptor);
                 switch (type.getSort()) {
@@ -398,10 +401,10 @@ public class DraftsmanClassAdapter implements Opcodes {
                     continue;
                 }
 
-                ALOAD_0.accept(m);
+                ALOAD_0_NODE.accept(m);
 
                 Object defaultValue = getForField(field, fieldDefaultValues);
-                addFieldValueToStack(field, m, defaultValue != null ? defaultValue : field.value);
+                pushFieldValueToStack(field, m, defaultValue != null ? defaultValue : field.value);
 
                 m.visitFieldInsn(PUTFIELD, classNode.name, field.name, field.desc);
             }
