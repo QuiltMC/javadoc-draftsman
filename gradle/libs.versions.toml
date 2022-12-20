@@ -1,0 +1,15 @@
+[versions]
+asm = "9.4"
+annotations = "23.1.0"
+quiltflower = "1.9.0"
+
+[libraries]
+asm_core = { module = "org.ow2.asm:asm", version.ref = "asm" }
+asm_tree = { module = "org.ow2.asm:asm-tree", version.ref = "asm" }
+asm_util = { module = "org.ow2.asm:asm-util", version.ref = "asm" }
+annotations = { module = "org.jetbrains:annotations", version.ref = "annotations" }
+
+quiltflower = { module = "org.quiltmc:quiltflower", version.ref = "quiltflower" }
+
+[bundles]
+asm = ["asm_core", "asm_tree", "asm_util"]

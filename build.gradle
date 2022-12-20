@@ -20,11 +20,9 @@ repositories {
 }
 
 dependencies {
-    compileOnly "org.jetbrains:annotations:23.0.0"
-    implementation "org.ow2.asm:asm:$asmVersion"
-    implementation "org.ow2.asm:asm-tree:$asmVersion"
-    implementation "org.ow2.asm:asm-util:$asmVersion"
-    testImplementation "org.quiltmc:quiltflower:$quiltflowerVersion"
+    compileOnly libs.annotations
+    implementation libs.bundles.asm
+    testImplementation libs.quiltflower
 }
 
 application {
