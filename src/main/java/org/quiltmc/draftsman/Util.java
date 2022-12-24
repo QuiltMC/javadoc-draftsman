@@ -5,6 +5,7 @@ import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.FieldInsnNode;
+import org.objectweb.asm.tree.FieldNode;
 import org.objectweb.asm.tree.IincInsnNode;
 import org.objectweb.asm.tree.IntInsnNode;
 import org.objectweb.asm.tree.InvokeDynamicInsnNode;
@@ -145,5 +146,9 @@ public class Util implements Opcodes {
         } else {
             return true;
         }
+    }
+
+    public static boolean isSameField(FieldNode a, FieldNode b) {
+        return a.name.equals(b.name) && a.desc.equals(b.desc);
     }
 }

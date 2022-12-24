@@ -71,11 +71,13 @@ public class DraftsmanClassAdapter implements Opcodes {
         newClassNode.fields = classNode.fields;
 
         Map<FieldNode, Object> staticFieldDefaultValues = getStaticFieldDefaultValues(classNode);
-        Map<FieldNode, Object> fieldDefaultValues = getFieldDefaultValues(classNode);
+        Map<FieldNode, Object> fieldDefaultValues = new HashMap<>();
+        Map<FieldNode, AbstractInsnNode> preInitFields = new HashMap<>();
+        getFieldDefaultValues(classNode, fieldDefaultValues, preInitFields);
         for (MethodNode method : classNode.methods) {
             switch (method.name) {
                 case "<clinit>" -> newClassNode.methods.add(eraseClInit(method, classNode, staticFieldDefaultValues));
-                case "<init>" -> newClassNode.methods.add(eraseInit(method, classNode, fieldDefaultValues));
+                case "<init>" -> newClassNode.methods.add(eraseInit(method, classNode, fieldDefaultValues, preInitFields));
                 default -> newClassNode.methods.add(eraseMethod(method));
             }
         }
@@ -111,6 +113,16 @@ public class DraftsmanClassAdapter implements Opcodes {
             }
         }
         return indices;
+    }
+
+    private static int indexOfOpcode(List<AbstractInsnNode> insns, int opcode) {
+        for (int i = 0; i < insns.size(); i++) {
+            if (insns.get(i).getOpcode() == opcode) {
+                return i;
+            }
+        }
+
+        return -1;
     }
 
     private static void returnEndMethod(MethodVisitor m) {
@@ -196,7 +208,7 @@ public class DraftsmanClassAdapter implements Opcodes {
         return values;
     }
 
-    private static Map<FieldNode, Object> getFieldDefaultValues(ClassNode classNode) {
+    private static void getFieldDefaultValues(ClassNode classNode, Map<FieldNode, Object> values, Map<FieldNode, AbstractInsnNode> preInitFields) {
         List<MethodNode> inits = new ArrayList<>();
         for (MethodNode method : classNode.methods) {
             if (!method.name.equals("<init>")) {
@@ -229,9 +241,9 @@ public class DraftsmanClassAdapter implements Opcodes {
             }
         }
 
+        int invokeSpecialIndex = indexOfOpcode(commonInsns, INVOKESPECIAL);
         List<Integer> putFields = getInsnsByOpcodeIndices(commonInsns, PUTFIELD);
 
-        Map<FieldNode, Object> values = new HashMap<>();
         for (int putFieldIndex : putFields) {
             if (putFieldIndex <= 1) {
                 continue;
@@ -254,14 +266,26 @@ public class DraftsmanClassAdapter implements Opcodes {
             AbstractInsnNode prevInsn = commonInsns.get(putFieldIndex - 1);
             AbstractInsnNode prevPrevInsn = commonInsns.get(putFieldIndex - 2);
             if (prevPrevInsn.getOpcode() == ALOAD && ((VarInsnNode) prevPrevInsn).var == 0) {
-                if (Util.isConstantOpcode(prevInsn.getOpcode())) {
-                    FieldNode field = new FieldNode(0, putField.name, putField.desc, null, null);
+                FieldNode field = new FieldNode(0, putField.name, putField.desc, null, null);
+                if (putFieldIndex < invokeSpecialIndex) {
+                    /*
+                     * Code: (implicit)
+                     * this.this$0 = this$0;
+                     * super();
+                     * ====
+                     * Bytecode:
+                     * ALOAD 0
+                     * ALOAD 1
+                     * PUTFIELD com/example/TestClass$Inner.this$0 : Lcom/example/TestClass;
+                     * ALOAD 0
+                     * INVOKESPECIAL java/lang/Object.<init> ()V
+                     */
+                    preInitFields.put(field, prevInsn);
+                } else if (Util.isConstantOpcode(prevInsn.getOpcode())) {
                     values.put(field, Util.getConstantInsnValue(prevInsn));
                 }
             }
         }
-
-        return values;
     }
 
     private static MethodNode eraseClInit(MethodNode original, ClassNode classNode, Map<FieldNode, Object> fieldDefaultValues) {
@@ -326,10 +350,19 @@ public class DraftsmanClassAdapter implements Opcodes {
         return m;
     }
 
-    private static MethodNode eraseInit(MethodNode original, ClassNode classNode, Map<FieldNode, Object> fieldDefaultValues) {
+    private static MethodNode eraseInit(MethodNode original, ClassNode classNode, Map<FieldNode, Object> fieldDefaultValues, Map<FieldNode, AbstractInsnNode> preInitFields) {
         MethodNode m = new MethodNode(original.access, original.name, original.desc, original.signature, original.exceptions.toArray(new String[0]));
         copyMethodData(original, m);
         m.visitCode();
+
+        // Handle variable captures
+        List<FieldNode> initializedFields = new ArrayList<>();
+        for (FieldNode field : preInitFields.keySet()) {
+            ALOAD_0_NODE.accept(m);
+            preInitFields.get(field).accept(m);
+            m.visitFieldInsn(PUTFIELD, classNode.name, field.name, field.desc);
+            initializedFields.add(field);
+        }
 
         // Handle super/this constructor call
         /*
@@ -397,7 +430,7 @@ public class DraftsmanClassAdapter implements Opcodes {
             // Add field initializations if the called constructor is a super constructor
             // (otherwise, we already did it in the called method)
             for (FieldNode field : classNode.fields) {
-                if ((field.access & ACC_STATIC) != 0) {
+                if ((field.access & ACC_STATIC) != 0 || initializedFields.stream().anyMatch(f -> Util.isSameField(field, f))) {
                     continue;
                 }
 
