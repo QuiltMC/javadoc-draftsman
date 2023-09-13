@@ -145,6 +145,10 @@ public class DraftsmanClassAdapter implements Opcodes {
             return false;
         }
 
+        if (classNode.recordComponents == null) {
+            return Type.getMethodType(init.desc).equals(Type.getMethodType("()V"));
+        }
+
         String argsDescriptor = classNode.recordComponents.stream().map(c -> c.descriptor).reduce("", (a, b) -> a + b);
         Type type = Type.getMethodType(String.format("(%s)V", argsDescriptor));
         return Type.getMethodType(init.desc).equals(type);
@@ -408,20 +412,22 @@ public class DraftsmanClassAdapter implements Opcodes {
              * PUTFIELD com/example/TestClass.field2 : I
              */
             int i = 1;
-            for (RecordComponentNode component : classNode.recordComponents) {
-                ALOAD_0_NODE.accept(m);
+            if (classNode.recordComponents != null) {
+                for (RecordComponentNode component : classNode.recordComponents) {
+                    ALOAD_0_NODE.accept(m);
 
-                Type type = Type.getType(component.descriptor);
-                switch (type.getSort()) {
-                    case Type.BYTE, Type.CHAR, Type.INT, Type.SHORT, Type.BOOLEAN -> m.visitVarInsn(ILOAD, i);
-                    case Type.DOUBLE -> m.visitVarInsn(DLOAD, i++);
-                    case Type.FLOAT -> m.visitVarInsn(FLOAD, i);
-                    case Type.LONG -> m.visitVarInsn(LLOAD, i++);
-                    default -> m.visitVarInsn(ALOAD, i);
+                    Type type = Type.getType(component.descriptor);
+                    switch (type.getSort()) {
+                        case Type.BYTE, Type.CHAR, Type.INT, Type.SHORT, Type.BOOLEAN -> m.visitVarInsn(ILOAD, i);
+                        case Type.DOUBLE -> m.visitVarInsn(DLOAD, i++);
+                        case Type.FLOAT -> m.visitVarInsn(FLOAD, i);
+                        case Type.LONG -> m.visitVarInsn(LLOAD, i++);
+                        default -> m.visitVarInsn(ALOAD, i);
+                    }
+                    i++;
+
+                    m.visitFieldInsn(PUTFIELD, classNode.name, component.name, component.descriptor);
                 }
-                i++;
-
-                m.visitFieldInsn(PUTFIELD, classNode.name, component.name, component.descriptor);
             }
 
             returnEndMethod(m);
